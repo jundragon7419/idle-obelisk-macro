@@ -12,3 +12,6 @@ debug/
 build/
 dist/
 *.spec
+
+# 수치 누적
+stats.json

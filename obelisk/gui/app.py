@@ -1,11 +1,12 @@
 """통합 GUI 창."""
 import queue
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from .. import __version__, config
 from ..core.logger import LogIdGenerator
 from ..core.runner import MacroRunner
+from ..core.stats import Stats
 from ..setup.game_settings import GameSettingsRunner
 from .freebie_tab import FreebieTab
 from .home_tab import HomeTab
@@ -17,18 +18,20 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"Idle Obelisk Macro v{__version__}")
-        self.geometry("780x560")
-        self.minsize(640, 420)
+        self.geometry("920x680")
+        self.minsize(760, 480)
 
         self.cfg = config.load()
         self.runner: MacroRunner | None = None
         self.setup_runner: GameSettingsRunner | None = None
+        self.stats = Stats()
         self.logq: queue.Queue[str] = queue.Queue()
         self.log_ids = LogIdGenerator()
 
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True, padx=6, pady=6)
-        self.home = HomeTab(nb, self.cfg, on_toggle=self.toggle, on_change=self._save)
+        self.home = HomeTab(nb, self.cfg, on_toggle=self.toggle, on_change=self._save,
+                            on_reset_stats=self._reset_stats)
         nb.add(self.home, text="Home")
         self.setup = SetupTab(nb, on_check=self.check_game_settings)
         nb.add(self.setup, text="Setup")
@@ -38,6 +41,7 @@ class App(tk.Tk):
         self._setup_hotkey()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(150, self._poll)
+        self.after(500, self._refresh_stats)
 
     # ── 로그 ─────────────────────────────────────
     def log(self, msg: str) -> str:
@@ -51,9 +55,11 @@ class App(tk.Tk):
             self.home.append(self.logq.get())
         if self.runner and not self.runner.is_alive():
             self.runner = None
+            self.stats.end_session()
             self.home.set_running(False)
             self.setup.set_busy(False)
         self.after(150, self._poll)
+        self.after(500, self._refresh_stats)
 
     # ── 실행/정지 ────────────────────────────────
     def toggle(self):
@@ -69,7 +75,8 @@ class App(tk.Tk):
             self.log("게임 설정 확인이 끝난 뒤에 실행해 주세요.")
             return
         self._save()
-        self.runner = MacroRunner(self.cfg, self.log)
+        self.stats.start_session()
+        self.runner = MacroRunner(self.cfg, self.log, self.stats)
         self.runner.start()
         self.home.set_running(True)
         self.setup.set_busy(False, macro_running=True)
@@ -94,6 +101,23 @@ class App(tk.Tk):
         self.setup.show_results(results)
         self.setup.set_busy(False)
 
+    # ── 수치 ─────────────────────────────────────
+    def _refresh_stats(self):
+        if self.runner:
+            state = "실행 중"
+        elif self.setup_runner:
+            state = "설정 확인 중"
+        else:
+            state = "정지"
+        self.home.stats.refresh(self.stats, self.runner, self.cfg, state)
+        self.stats.save()
+        self.after(1000, self._refresh_stats)
+
+    def _reset_stats(self):
+        if messagebox.askyesno("누적 초기화", "누적 수치를 모두 지울까요? 이번 실행 수치는 그대로 둡니다."):
+            self.stats.reset_total()
+            self.log("누적 수치를 초기화했습니다.")
+
     def _setup_hotkey(self):
         try:
             import keyboard
@@ -109,4 +133,5 @@ class App(tk.Tk):
     def _on_close(self):
         self.stop()
         self._save()
+        self.stats.save(force=True)
         self.destroy()

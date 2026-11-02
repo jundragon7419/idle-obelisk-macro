@@ -1,13 +1,15 @@
-"""Home 탭: 왼쪽 로그, 오른쪽 옵션과 요약 영역(추후), 오른쪽 아래 실행 버튼."""
+"""Home 탭: 왼쪽 로그, 오른쪽 옵션·상태·수치, 오른쪽 아래 실행 버튼."""
 import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
+
+from .stats_panel import StatsPanel
 
 MAX_LOG_LINES = 2000
 
 
 class HomeTab(ttk.Frame):
-    def __init__(self, master, cfg: dict, on_toggle, on_change):
+    def __init__(self, master, cfg: dict, on_toggle, on_change, on_reset_stats):
         super().__init__(master, padding=8)
         self.general = cfg["general"]
         self.on_change = on_change
@@ -29,16 +31,17 @@ class HomeTab(ttk.Frame):
         self.debug = tk.BooleanVar(value=self.general.get("debug", False))
         ttk.Checkbutton(opts, text="Debug", variable=self.debug,
                         command=self._apply).pack(anchor="w")
-        ttk.Label(opts, text="로그 한 줄마다 그 순간 화면을 debug 폴더에 "
-                             "'로그ID.png'로 저장합니다.",
-                  wraplength=200, foreground="#555").pack(anchor="w", pady=(2, 0))
+        ttk.Label(opts, text="문제가 생긴 작업의 화면만 debug/로그ID.png로 저장",
+                  foreground="#555").pack(anchor="w")
 
-        # 수치 요약은 다음 단계에서 채울 자리
-        self.summary = ttk.Frame(side)
-        self.summary.pack(fill="both", expand=True, pady=(8, 0))
+        self.stats = StatsPanel(side)
+        self.stats.pack(fill="both", expand=True, pady=(8, 0))
 
-        self.run_btn = ttk.Button(self, text="Run", width=14, command=on_toggle)
-        self.run_btn.grid(row=1, column=1, sticky="se", pady=(8, 0))
+        bottom = ttk.Frame(self)
+        bottom.grid(row=1, column=1, sticky="ew", pady=(8, 0))
+        ttk.Button(bottom, text="누적 초기화", command=on_reset_stats).pack(side="left")
+        self.run_btn = ttk.Button(bottom, text="Run", width=14, command=on_toggle)
+        self.run_btn.pack(side="right")
 
     def _apply(self):
         self.general["debug"] = bool(self.debug.get())

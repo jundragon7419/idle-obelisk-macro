@@ -29,7 +29,6 @@ class LootbugFeature(Feature):
     def __init__(self, ctx):
         super().__init__(ctx)
         self.v = LootbugVision(self.cfg)
-        self.stats = {"found": 0, "golden": 0, "bought": 0, "failed": 0}
 
     # ── 보조 ─────────────────────────────────────
     @property
@@ -86,11 +85,11 @@ class LootbugFeature(Feature):
         screen = self._shot()
 
         if self.v.popup_open(screen):
-            self.log("팝업이 열려 있어서 이어서 처리합니다.")
+            self.log("팝업이 열려 있어서 이어서 처리합니다.", problem=True)
             self._handle_popup(screen)
             return not self.detect_only
         if not home.at_home(screen):
-            self.log("홈 화면이 아니라서 이번 주기는 건너뜁니다.")
+            self.log("홈 화면이 아니라서 이번 주기는 건너뜁니다.", problem=True)
             return False
 
         bugs = self.v.find(screen)
@@ -109,12 +108,12 @@ class LootbugFeature(Feature):
         self._tap(target.x, target.y, self.cfg.get("tap_jitter_px", 5))
         popup = self._wait_popup()
         if popup is None:
-            self.stats["failed"] += 1
-            self.log("팝업이 열리지 않았습니다. 루트버그가 움직였을 수 있어 다시 찾습니다.")
+            self.count("fail.popup")
+            self.log("팝업이 열리지 않았습니다. 루트버그가 움직였을 수 있어 다시 찾습니다.", problem=True)
             return True
 
-        self.stats["found"] += 1
-        self.stats["golden"] += sum(b.golden for b in bugs)
+        self.count("looted")
+        self.mark_claimed()
         self._handle_popup(popup)
         return True
 
@@ -142,8 +141,9 @@ class LootbugFeature(Feature):
                 if self.v.is_checked(self._shot(), row.y) == want:
                     return True
             if attempt < attempts:
-                self.log(f"  {name}: 반영되지 않아 한 번 더 누릅니다.")
-        self.log(f"  {name}: 탭했지만 체크 상태가 바뀌지 않았습니다.")
+                self.log(f"  {name}: 반영되지 않아 한 번 더 누릅니다.", problem=True)
+        self.log(f"  {name}: 탭했지만 체크 상태가 바뀌지 않았습니다.", problem=True)
+        self.count("fail.toggle")
         return False
 
     def _mismatches(self, rows):
@@ -154,7 +154,8 @@ class LootbugFeature(Feature):
         rows = self.v.read_rows(screen)
         self.log("  팝업 행: " + ", ".join(
             f"{BUFF_NAMES[r.buff] if r.buff else '?(' + r.guess + ')'} {r.score:.2f}"
-            f"{'[v]' if r.checked else '[ ]'}{'' if r.buyable else '(구매완료)'}" for r in rows))
+            f"{'[v]' if r.checked else '[ ]'}{'' if r.buyable else '(구매완료)'}" for r in rows),
+            problem=any(r.buff is None for r in rows))
 
         for row in self._mismatches(rows):
             self._toggle(row, self._want(row))
@@ -168,15 +169,21 @@ class LootbugFeature(Feature):
         rows = self.v.read_rows(screen)
         wrong = self._mismatches(rows)
         if wrong:
+            self.count("fail.held")
             self.log("  설정과 다른 체크가 남아 있어 구매하지 않습니다: " + ", ".join(
-                f"{BUFF_NAMES.get(r.buff, r.guess)}{'[v]' if r.checked else '[ ]'}" for r in wrong))
+                f"{BUFF_NAMES.get(r.buff, r.guess)}{'[v]' if r.checked else '[ ]'}" for r in wrong), problem=True)
         elif self.v.buy_enabled(screen):
             x1, y1, x2, y2 = BUY_ROI
-            bought = [BUFF_NAMES[r.buff] for r in rows if r.buyable and r.checked]
+            bought = [r.buff for r in rows if r.buyable and r.checked]
             self._tap((x1 + x2) // 2, (y1 + y2) // 2)
-            self.stats["bought"] += 1
-            self.log("  Buy Checked 탭: " + ", ".join(bought))
+            self.log("  Buy Checked 탭: " + ", ".join(BUFF_NAMES[b] for b in bought))
             self.ctx.sleep(1.0)
+            if self.v.buy_enabled(self._shot()):
+                self.count("fail.buy")
+                self.log("  Buy Checked가 아직 활성 상태라 구매되지 않은 것으로 봅니다.", problem=True)
+            else:
+                for b in bought:
+                    self.count(f"buffs.{b}")
         else:
             self.log("  살 버프가 없어 Buy Checked가 비활성 상태입니다.")
 
@@ -193,7 +200,7 @@ class LootbugFeature(Feature):
         else:
             screen = self._shot()
             if self.v.popup_open(screen) and self.ctx.cfg["general"].get("allow_back_key"):
-                self.log("  X로 닫히지 않아 뒤로가기를 보냅니다.")
+                self.log("  X로 닫히지 않아 뒤로가기를 보냅니다.", problem=True)
                 self.ctx.adb.back()
                 self.ctx.sleep(0.8)
                 screen = self._shot()
@@ -201,4 +208,4 @@ class LootbugFeature(Feature):
         if home.at_home(screen):
             self.log("  홈 화면 복귀 완료")
         else:
-            self.log("  홈 화면 복귀를 확인하지 못했습니다. 다음 주기에 다시 확인합니다.")
+            self.log("  홈 화면 복귀를 확인하지 못했습니다. 다음 주기에 다시 확인합니다.", problem=True)

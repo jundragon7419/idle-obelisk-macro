@@ -117,22 +117,22 @@ class GameSettingsTask:
         screen = self.adb.screenshot()
         if not self._options_open(screen):
             if not scr.at_home(screen) and not self._go_home():
-                self.log("홈 화면으로 돌아오지 못해 설정 화면을 열 수 없습니다.")
+                self.log("홈 화면으로 돌아오지 못해 설정 화면을 열 수 없습니다.", problem=True)
                 return False
             self.adb.tap(*MENU_BTN)
             screen = self._wait(lambda s: self._match(s, self.options_icon)[0] >= OPTIONS_MIN_SCORE)
             if screen is None:
-                self.log("메뉴에서 Options 버튼을 찾지 못했습니다.")
+                self.log("메뉴에서 Options 버튼을 찾지 못했습니다.", problem=True)
                 return False
             _, (x, y) = self._match(screen, self.options_icon)
             h, w = self.options_icon.shape
             self.adb.tap(x + w // 2, y + h // 3)  # 아이콘 부분
             if self._wait(self._options_open) is None:
-                self.log("Options 화면이 열리지 않았습니다.")
+                self.log("Options 화면이 열리지 않았습니다.", problem=True)
                 return False
         self.adb.tap(*GAMEPLAY_TAB)
         if self._wait(self._gameplay_active, timeout=2.0) is None:
-            self.log("Gameplay 탭으로 바뀌지 않았습니다.")
+            self.log("Gameplay 탭으로 바뀌지 않았습니다.", problem=True)
             return False
         self.sleep(0.5)
         return True
@@ -170,7 +170,7 @@ class GameSettingsTask:
         screen = self.adb.screenshot()
         for s in SETTINGS:
             if s.key not in rows:
-                self.log(f"{s.label}: 항목을 찾지 못했습니다.")
+                self.log(f"{s.label}: 항목을 찾지 못했습니다.", problem=True)
                 continue
             cy = rows[s.key]
             state = is_checked(screen, cy)
@@ -183,11 +183,11 @@ class GameSettingsTask:
                 self.log(f"{s.label}: {want_txt}로 바꿨습니다.")
             else:
                 results[s.key] = FAILED
-                self.log(f"{s.label}: {want_txt}로 바꾸지 못했습니다.")
+                self.log(f"{s.label}: {want_txt}로 바꾸지 못했습니다.", problem=True)
         if self._go_home():
             self.log("설정 화면을 닫고 홈 화면으로 돌아왔습니다.")
         else:
-            self.log("홈 화면 복귀를 확인하지 못했습니다.")
+            self.log("홈 화면 복귀를 확인하지 못했습니다.", problem=True)
         return results
 
 
@@ -202,6 +202,7 @@ class GameSettingsRunner(threading.Thread):
 
     def run(self):
         results = {s.key: MISSING for s in SETTINGS}
+        self.log.begin()
         try:
             a = self.cfg["adb"]
             adb = Adb(a["path"], a.get("serial", ""), int(a.get("tap_press_ms", 0)))
@@ -209,7 +210,8 @@ class GameSettingsRunner(threading.Thread):
             self.log("게임 설정 확인을 시작합니다.")
             results = GameSettingsTask(adb, self.log, time.sleep).run()
         except AdbError as e:
-            self.log(f"ADB 오류: {e}")
+            self.log(f"ADB 오류: {e}", problem=True)
         except Exception as e:
-            self.log(f"예상하지 못한 오류: {type(e).__name__}: {e}")
+            self.log(f"예상하지 못한 오류: {type(e).__name__}: {e}", problem=True)
+        self.log.end()
         self.on_done(results)

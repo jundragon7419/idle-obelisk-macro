@@ -22,7 +22,6 @@ class FreebieFeature(Feature):
     def __init__(self, ctx):
         super().__init__(ctx)
         self.v = FreebieVision()
-        self.stats = {"visits": 0, "claimed": 0, "failed": 0}
 
     @property
     def detect_only(self) -> bool:
@@ -45,7 +44,7 @@ class FreebieFeature(Feature):
     def run_once(self) -> bool:
         screen = self._shot()
         if scr.menu_open(screen):
-            self.log("메뉴가 열려 있어서 상점 안에서 이어서 진행합니다.")
+            self.log("메뉴가 열려 있어서 상점 안에서 이어서 진행합니다.", problem=True)
             self._claim_in_shop()
             return False
         if not scr.at_home(screen):
@@ -62,10 +61,9 @@ class FreebieFeature(Feature):
 
         self.ctx.adb.tap(*SHOP_BTN)
         if self._wait(scr.menu_open) is None:
-            self.stats["failed"] += 1
-            self.log("상점이 열리지 않았습니다. 다음 주기에 다시 시도합니다.")
+            self.count("fail.shop")
+            self.log("상점이 열리지 않았습니다. 다음 주기에 다시 시도합니다.", problem=True)
             return False
-        self.stats["visits"] += 1
         self._claim_in_shop()
         return False
 
@@ -98,10 +96,10 @@ class FreebieFeature(Feature):
     def _claim_in_shop(self):
         row = self._find_by_scrolling()
         if row is None:
-            self.stats["failed"] += 1
-            self.log("상점에서 Freebie Pack을 찾지 못했습니다.")
+            self.count("fail.not_found")
+            self.log("상점에서 Freebie Pack을 찾지 못했습니다.", problem=True)
         elif not row.claim_active:
-            self.log("Claim 버튼이 비활성 상태입니다. 받을 프리비가 없습니다.")
+            self.log("Claim 버튼이 비활성 상태입니다. 받을 프리비가 없습니다.", problem=True)
         else:
             self._claim_loop(row)
         self._close_shop()
@@ -109,21 +107,29 @@ class FreebieFeature(Feature):
     def _claim_loop(self, row):
         """Claim 한 번에 쌓인 프리비를 모두 받는다. 버튼이 비활성으로 바뀌면 완료.
 
-        받은 직후 보상 알림이 라벨을 가리므로, 라벨을 다시 찾지 않고
-        처음 찾은 버튼 위치의 색으로 확인한다.
+        받은 개수는 누르기 전에 'Banked: N/최대'에서 읽는다. 받은 직후에는 보상 알림이
+        라벨을 가리므로, 라벨을 다시 찾지 않고 처음 찾은 버튼 위치의 색으로 확인한다.
         """
+        if row.banked is None:
+            self.count("fail.count")
+            self.log("Banked 개수를 읽지 못했습니다. 개수는 기록하지 않고 받습니다.", problem=True)
+        else:
+            self.log(f"Banked {row.banked[0]}/{row.banked[1]}")
         cx, cy = row.claim_center
         bx, by = cx - CLAIM_SIZE[0] // 2, cy - CLAIM_SIZE[1] // 2
         for attempt in range(1, 3):
             self.ctx.adb.tap(cx, cy)
             if self._wait(lambda sc: not self.v.claim_active(sc, bx, by), timeout=3.0) is not None:
-                self.stats["claimed"] += 1
-                self.log("Claim 완료. 쌓여 있던 프리비를 모두 받았습니다.")
+                got = row.banked[0] if row.banked else 0
+                self.count("claimed", got)
+                self.mark_claimed()
+                self.log(f"Claim 완료. 프리비 {got}개를 받았습니다." if row.banked
+                         else "Claim 완료.")
                 return
             if attempt == 1:
-                self.log("Claim 버튼이 그대로라 한 번 더 누릅니다.")
-        self.stats["failed"] += 1
-        self.log("Claim을 눌렀지만 버튼이 비활성으로 바뀌지 않았습니다.")
+                self.log("Claim 버튼이 그대로라 한 번 더 누릅니다.", problem=True)
+        self.count("fail.claim")
+        self.log("Claim을 눌렀지만 버튼이 비활성으로 바뀌지 않았습니다.", problem=True)
 
     def _close_shop(self):
         for _ in range(3):
@@ -135,4 +141,4 @@ class FreebieFeature(Feature):
         if self._wait(scr.at_home, timeout=2.0) is not None:
             self.log("홈 화면 복귀 완료")
         else:
-            self.log("홈 화면 복귀를 확인하지 못했습니다. 다음 주기에 다시 확인합니다.")
+            self.log("홈 화면 복귀를 확인하지 못했습니다. 다음 주기에 다시 확인합니다.", problem=True)

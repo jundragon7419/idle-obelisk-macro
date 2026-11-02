@@ -29,7 +29,7 @@ class FreebieTab(ttk.Frame):
         ttk.Label(opts, text="수령 기준: 초록 막대 높이(px)").grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.level = tk.IntVar(value=int(self.cfg.get("min_level_px", 1)))
         self._spin(opts, self.level, 1, 40).grid(row=1, column=1, sticky="w", padx=6, pady=(6, 0))
-        ttk.Label(opts, text="1이면 하나라도 쌓이면 받음. Banked 5/35일 때 약 6px.",
+        ttk.Label(opts, text="1이면 하나라도 쌓이면 받음. 막대는 쌓인 비율(N/최대)만큼 차오릅니다.",
                   foreground="#555").grid(row=2, column=0, columnspan=2, sticky="w")
 
         self.detect_only = tk.BooleanVar(value=self.cfg.get("detect_only", False))
