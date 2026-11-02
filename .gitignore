@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 사용자 설정과 실행 결과
+config.json
+debug/
+
+# PyInstaller
+build/
+dist/
+*.spec

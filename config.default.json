@@ -1,0 +1,32 @@
+{
+  "adb": {
+    "path": "C:\\LDPlayer\\LDPlayer9\\adb.exe",
+    "serial": "",
+    "tap_press_ms": 80
+  },
+  "general": {
+    "debug": false,
+    "allow_back_key": false
+  },
+  "lootbug": {
+    "enabled": true,
+    "detect_only": false,
+    "check_interval_sec": 30,
+    "wanted_buffs": [],
+    "min_score": 0.45,
+    "buff_min_score": 0.5,
+    "buff_min_margin": 0.1,
+    "popup_timeout_sec": 2.0,
+    "settle_timeout_sec": 5.0,
+    "toggle_timeout_sec": 2.0,
+    "tap_jitter_px": 5,
+    "max_close_retries": 3
+  },
+  "freebie": {
+    "enabled": false,
+    "detect_only": false,
+    "check_interval_sec": 60,
+    "min_level_px": 1,
+    "max_scroll_steps": 8
+  }
+}
