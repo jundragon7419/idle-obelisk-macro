@@ -6,9 +6,11 @@ from tkinter import ttk
 from .. import __version__, config
 from ..core.logger import LogIdGenerator
 from ..core.runner import MacroRunner
+from ..setup.game_settings import GameSettingsRunner
 from .freebie_tab import FreebieTab
 from .home_tab import HomeTab
 from .lootbug_tab import LootbugTab
+from .setup_tab import SetupTab
 
 
 class App(tk.Tk):
@@ -20,6 +22,7 @@ class App(tk.Tk):
 
         self.cfg = config.load()
         self.runner: MacroRunner | None = None
+        self.setup_runner: GameSettingsRunner | None = None
         self.logq: queue.Queue[str] = queue.Queue()
         self.log_ids = LogIdGenerator()
 
@@ -27,6 +30,8 @@ class App(tk.Tk):
         nb.pack(fill="both", expand=True, padx=6, pady=6)
         self.home = HomeTab(nb, self.cfg, on_toggle=self.toggle, on_change=self._save)
         nb.add(self.home, text="Home")
+        self.setup = SetupTab(nb, on_check=self.check_game_settings)
+        nb.add(self.setup, text="Setup")
         nb.add(LootbugTab(nb, self.cfg, self._save), text="Lootbug")
         nb.add(FreebieTab(nb, self.cfg, self._save), text="Freebie")
 
@@ -47,6 +52,7 @@ class App(tk.Tk):
         if self.runner and not self.runner.is_alive():
             self.runner = None
             self.home.set_running(False)
+            self.setup.set_busy(False)
         self.after(150, self._poll)
 
     # ── 실행/정지 ────────────────────────────────
@@ -59,16 +65,34 @@ class App(tk.Tk):
     def start(self):
         if self.runner:
             return
+        if self.setup_runner:
+            self.log("게임 설정 확인이 끝난 뒤에 실행해 주세요.")
+            return
         self._save()
         self.runner = MacroRunner(self.cfg, self.log)
         self.runner.start()
         self.home.set_running(True)
+        self.setup.set_busy(False, macro_running=True)
         self.log("실행 시작")
 
     def stop(self):
         if self.runner:
             self.runner.stop()
             self.log("정지 요청")
+
+    # ── 게임 설정 확인 ────────────────────────────
+    def check_game_settings(self):
+        if self.runner or self.setup_runner:
+            return
+        self.setup.set_busy(True)
+        self.setup_runner = GameSettingsRunner(
+            self.cfg, self.log, lambda r: self.after(0, self._settings_done, r))
+        self.setup_runner.start()
+
+    def _settings_done(self, results: dict):
+        self.setup_runner = None
+        self.setup.show_results(results)
+        self.setup.set_busy(False)
 
     def _setup_hotkey(self):
         try:

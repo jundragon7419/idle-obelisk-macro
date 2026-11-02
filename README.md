@@ -26,10 +26,25 @@ python main.py
 
 - **Home**: 왼쪽에 로그가 올라오고, 오른쪽 아래 `Run`으로 시작하고 멈춥니다. F8을 누르면 언제든 정지합니다.
   오른쪽의 **Debug**를 켜면 로그 한 줄마다 그 순간 화면을 `debug/로그ID.png`로 저장하고, `debug/debug.log`에 ID와 로그를 남깁니다.
+- **Setup**: 매크로에 필요한 게임 설정을 확인하고 맞춥니다 (아래 참고). 매크로 실행 중에는 쓸 수 없습니다.
 - **Lootbug**: 사용 여부, 구매할 버프, 확인 주기, 감지만 실행. 바꾼 값은 바로 저장되고 실행 중에도 반영됩니다.
 - **Freebie**: 사용 여부, 수령 기준(초록 막대 높이), 확인 주기, 감지만 실행. 기본은 꺼져 있습니다.
 
 처음에는 Lootbug 탭에서 **감지만 실행**을 켜고 돌려보세요. 탭은 하지 않고, 찾은 루트버그를 표시한 이미지를 `debug` 폴더에 저장합니다.
+
+## 게임 설정 (Setup 탭)
+
+게임 Options → Gameplay → Lootbugs & Freebies가 아래와 같아야 매크로가 동작합니다.
+
+| 항목 | 필요 |
+|---|---|
+| Auto-Loot free Lootbug offerings | 체크 |
+| Remove Lootbug Gem confirmation | 해제 |
+| Enable Loot-All Banked Lootbugs | 체크 |
+| Tap any Lootbug to Loot-All | 체크 |
+| One Click Claim all Banked Freebies | 체크 |
+
+Setup 탭의 버튼을 누르면 홈 하단 가운데 메뉴 버튼 → Options → Gameplay 탭으로 이동해 각 항목을 확인하고, 다른 항목은 체크박스를 눌러 맞춘 뒤 홈 화면으로 돌아옵니다.
 
 ## 로그 ID
 
@@ -70,11 +85,12 @@ config.default.json         기본 설정 (사용자 설정은 config.json, git 
 assets/templates/
   lootbugs/                 루트버그 스킨 14장 ({skin}_{normal|golden}.png)
   buffs/                    버프 아이콘 11장 (위키 이미지)
-  ui/                       루트버그 팝업 헤더, Freebie Pack 라벨
+  ui/                       루트버그 팝업 헤더, Freebie Pack 라벨, Options 아이콘, 설정 항목 라벨
 obelisk/
   core/                     ADB, 이미지 처리, 홈 화면 판별, 실행 스레드
   features/                 기능별 코드 (lootbug, freebie)
-  gui/                      통합 GUI (Home / Lootbug / Freebie 탭)
+  setup/                    게임 설정 확인 및 적용
+  gui/                      통합 GUI (Home / Setup / Lootbug / Freebie 탭)
 ```
 
 새 기능은 `obelisk/features/`에 `Feature`를 상속한 클래스를 만들고 `features/__init__.py`의 `FEATURES`에 추가하면 실행기가 함께 돌립니다.

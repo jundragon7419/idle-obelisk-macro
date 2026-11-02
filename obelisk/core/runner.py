@@ -5,9 +5,8 @@ from typing import Callable
 
 from ..features import FEATURES
 from ..features.base import Context
-from ..paths import DEBUG_DIR
 from .adb import Adb, AdbError
-from .imaging import imwrite
+from .debuglog import DebugLogger
 
 MAX_STREAK = 10  # 연속으로 즉시 재실행하는 최대 횟수 (무한 반복 방지)
 
@@ -20,23 +19,11 @@ class MacroRunner(threading.Thread):
     def __init__(self, cfg: dict, log: Callable[[str], str]):
         """log(msg)는 로그를 남기고 그 로그 ID를 돌려준다."""
         super().__init__(daemon=True)
-        self.cfg, self._raw_log = cfg, log
+        self.cfg = cfg
+        self.log = DebugLogger(cfg, log)
         self._stop_event = threading.Event()
         self.features = []
         self.adb: Adb | None = None
-
-    def log(self, msg: str) -> str:
-        """로그를 남기고, 디버그가 켜져 있으면 그 순간 화면을 로그 ID 이름으로 저장한다."""
-        log_id = self._raw_log(msg)
-        if self.cfg["general"].get("debug") and self.adb is not None:
-            try:
-                DEBUG_DIR.mkdir(exist_ok=True)
-                imwrite(DEBUG_DIR / f"{log_id}.png", self.adb.current_frame())
-                with open(DEBUG_DIR / "debug.log", "a", encoding="utf-8") as f:
-                    f.write(f"{log_id}\t{msg}\n")
-            except Exception as e:  # 디버그 저장 실패가 매크로를 멈추면 안 됨
-                self._raw_log(f"디버그 스크린샷 저장 실패: {e}")
-        return log_id
 
     def stop(self):
         self._stop_event.set()
@@ -49,6 +36,7 @@ class MacroRunner(threading.Thread):
         try:
             a = self.cfg["adb"]
             self.adb = Adb(a["path"], a.get("serial", ""), int(a.get("tap_press_ms", 0)))
+            self.log.adb = self.adb
             self.log(f"ADB 연결: {self.adb.serial}")
             ctx = Context(self.adb, self.cfg, self.log, self._sleep)
             self.features = [F(ctx) for F in FEATURES if F.implemented]
