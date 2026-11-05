@@ -6,7 +6,14 @@
   },
   "general": {
     "debug": false,
-    "allow_back_key": false
+    "capture": "raw",
+    "allow_back_key": false,
+    "memory": {
+      "interval_sec": 60,
+      "warn_available_mb": 1000,
+      "stop_available_mb": 500,
+      "ldplayer_warn_mb": 4096
+    }
   },
   "lootbug": {
     "enabled": true,
@@ -28,5 +35,11 @@
     "check_interval_sec": 60,
     "min_level_px": 1,
     "max_scroll_steps": 8
+  },
+  "bombs": {
+    "enabled": false,
+    "order": "cherry_first",
+    "check_interval_sec": 60,
+    "delay_sec": 1.0
   }
 }

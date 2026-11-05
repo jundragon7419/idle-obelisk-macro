@@ -60,6 +60,10 @@ class FreebieFeature(Feature):
             return False
 
         self.ctx.adb.tap(*SHOP_BTN)
+        if self._wait(scr.menu_open) is None and scr.at_home(self._shot()):
+            # 탭이 씹히는 경우가 있어 홈 화면 그대로면 한 번 더 누른다
+            self.log("상점이 열리지 않아 한 번 더 누릅니다.", problem=True)
+            self.ctx.adb.tap(*SHOP_BTN)
         if self._wait(scr.menu_open) is None:
             self.count("fail.shop")
             self.log("상점이 열리지 않았습니다. 다음 주기에 다시 시도합니다.", problem=True)
@@ -110,11 +114,22 @@ class FreebieFeature(Feature):
         받은 개수는 누르기 전에 'Banked: N/최대'에서 읽는다. 받은 직후에는 보상 알림이
         라벨을 가리므로, 라벨을 다시 찾지 않고 처음 찾은 버튼 위치의 색으로 확인한다.
         """
+        if row.banked is not None and not (0 < row.banked[0] <= row.banked[1]):
+            self.log(f"Banked를 {row.banked[0]}/{row.banked[1]}로 읽었지만 맞지 않는 값이라 버립니다.",
+                     problem=True)
+            row.banked = None
         if row.banked is None:
             self.count("fail.count")
             self.log("Banked 개수를 읽지 못했습니다. 개수는 기록하지 않고 받습니다.", problem=True)
         else:
-            self.log(f"Banked {row.banked[0]}/{row.banked[1]}")
+            n, mx = row.banked
+            last = getattr(self, "_last_max", None)
+            if last is not None and mx != last:
+                # 최대치는 업그레이드할 때만 바뀌므로, 바뀌었으면 잘못 읽었을 수 있어 화면을 남김
+                self.log(f"Banked {n}/{mx} (최대치가 지난번 {last}와 다름)", problem=True)
+            else:
+                self.log(f"Banked {n}/{mx}")
+            self._last_max = mx
         cx, cy = row.claim_center
         bx, by = cx - CLAIM_SIZE[0] // 2, cy - CLAIM_SIZE[1] // 2
         for attempt in range(1, 3):

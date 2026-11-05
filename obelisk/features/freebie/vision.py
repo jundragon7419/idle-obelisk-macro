@@ -71,23 +71,41 @@ class FreebieVision:
 def read_banked(screen, lx, ly) -> tuple[int, int] | None:
     """'Banked: 7/35'에서 (7, 35)를 읽는다. 최대치는 계정마다 다르며 자릿수도 제한하지 않는다.
 
-    '/'를 기준으로 왼쪽 숫자를 붙어 있는 글자까지만 읽는다 (':' 다음 빈칸에서 멈춤).
+    '/'를 기준으로 양옆에 붙어 있는 숫자만 읽는다 (':' 다음 빈칸에서 멈춤).
     """
     x1, y1, x2, y2 = BANKED_ROI
-    region = screen[ly + y1:ly + y2, lx + x1:lx + x2]
+    region = screen[ly + y1:ly + y2, lx + x1:lx + x2].copy()
+    # 칸 테두리선이 영역에 걸치면 모든 글자가 한 덩어리로 붙으므로, 가로로 길게 이어진
+    # 밝은 줄과 세로 줄은 지운다 (글자는 한 줄을 절반 넘게 채우지 않음).
+    on = region.min(axis=2) > 100
+    region[on.mean(axis=1) > 0.5, :] = 0
+    region[:, on.mean(axis=0) > 0.8] = 0
     glyphs = [(x, g) for x, g in split_glyphs(region) if g.shape[1] > 2]
     chars = [(x, classify(g)[0]) for x, g in glyphs]
     slash = [i for i, (_, c) in enumerate(chars) if c == "/"]
     if len(slash) != 1:
         return None
     i = slash[0]
+    # '/' 양옆으로 붙어 있는 글자를 모은다. 붙은 글자 중 하나라도 못 읽으면 숫자를 잘라
+    # 읽지 않고 실패로 본다 (예: 1/36을 1/3으로 읽는 것 방지).
+    gap = 14
     left, right = [], []
     j = i - 1
-    while j >= 0 and chars[j][1] and chars[j][1].isdigit() and chars[j + 1][0] - chars[j][0] <= 14:
-        left.insert(0, chars[j][1])
+    while j >= 0 and chars[j + 1][0] - chars[j][0] <= gap:
+        c = chars[j][1]
+        if c is None:
+            return None      # ':'는 빈칸 너머에 있어서 여기 오지 않음
+        if not c.isdigit():
+            break
+        left.insert(0, c)
         j -= 1
-    for x, c in chars[i + 1:]:
-        if not (c and c.isdigit()):
+    for k in range(i + 1, len(chars)):
+        if chars[k][0] - chars[k - 1][0] > gap:
+            break
+        c = chars[k][1]
+        if c is None:
+            return None
+        if not c.isdigit():
             break
         right.append(c)
     if not left or not right:

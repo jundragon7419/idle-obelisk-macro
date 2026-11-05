@@ -22,6 +22,22 @@ def imwrite(path: Path, img):
     cv2.imencode(path.suffix or ".png", img)[1].tofile(str(path))
 
 
+# 게임은 540×960으로 그리고 720×1280에서는 4칸 중 한 칸(나머지 2)을 복제한다.
+# 그 칸을 빼면 게임이 그린 픽셀 그대로 돌아온다.
+_KEEP_X = np.array([i for i in range(720) if i % 4 != 2])
+_KEEP_Y = np.array([i for i in range(1280) if i % 4 != 2])
+
+
+def to_540(screen):
+    """720×1280 화면을 게임 원래 픽셀(540×960)로 정확히 되돌린다."""
+    return screen[_KEEP_Y][:, _KEEP_X]
+
+
+def from_540(x, y) -> tuple[int, int]:
+    """540×960 좌표를 탭에 쓰는 720×1280 좌표로."""
+    return round(x * 4 / 3), round(y * 4 / 3)
+
+
 def to_native(screen):
     return cv2.resize(screen, NATIVE, interpolation=cv2.INTER_AREA)
 
@@ -42,6 +58,30 @@ def inlier(img, x, y, bgr, mask, tol) -> float:
         return 0.0
     diff = np.abs(patch.astype(np.int16) - bgr.astype(np.int16)).max(axis=2)
     return float((diff <= tol)[mask].mean())
+
+
+def inlier_many(img, xs, ys, bgr, mask, tol) -> np.ndarray:
+    """여러 위치의 inlier 점수를 한 번에 계산한다 (Python 반복 대신 배열 연산).
+
+    xs, ys는 패치 왼쪽 위 좌표. 이미지 밖으로 나가는 위치는 0점.
+    """
+    xs = np.asarray(xs, dtype=np.intp)
+    ys = np.asarray(ys, dtype=np.intp)
+    out = np.zeros(len(xs), dtype=np.float32)
+    if len(xs) == 0:
+        return out
+    h, w = mask.shape
+    H, W = img.shape[:2]
+    ok = (xs >= 0) & (ys >= 0) & (xs + w <= W) & (ys + h <= H)
+    if not ok.any():
+        return out
+    my, mx = np.nonzero(mask)                       # 마스크 픽셀만 모아 비교
+    tpl = bgr[my, mx].astype(np.int16)              # (P, 3)
+    yy = ys[ok, None] + my[None, :]                 # (N, P)
+    xx = xs[ok, None] + mx[None, :]
+    diff = np.abs(img[yy, xx].astype(np.int16) - tpl).max(axis=2)
+    out[ok] = (diff <= tol).mean(axis=1)
+    return out
 
 
 def red_ratio(img, roi) -> float:

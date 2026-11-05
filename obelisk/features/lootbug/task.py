@@ -149,13 +149,45 @@ class LootbugFeature(Feature):
     def _mismatches(self, rows):
         return [r for r in rows if r.buyable and r.checked != self._want(r)]
 
+    @staticmethod
+    def _signature(rows):
+        return [(r.index, r.buff, r.checked, r.buyable) for r in rows]
+
+    def _read_stable(self, screen):
+        """행 목록을 0.5초 간격으로 두 번 연속 같게 읽힐 때까지 읽는다 (최대 4번).
+
+        팝업이 다 그려지기 전이나 알림이 지나가는 중에 읽어서 행을 놓치는 일을 막는다.
+        """
+        prev = None
+        rows = self.v.read_rows(screen)
+        for _ in range(4):
+            sig = self._signature(rows)
+            if sig == prev:
+                return rows, screen
+            prev = sig
+            self.ctx.sleep(0.5)
+            screen = self._shot()
+            rows = self.v.read_rows(screen)
+        self.log("  행 목록이 읽을 때마다 달라 마지막으로 읽은 것을 씁니다.", problem=True)
+        return rows, screen
+
+    @staticmethod
+    def _gaps(rows) -> list[int]:
+        """중간에 빠진 행 번호 (1부터). 행은 위에서부터 빈칸 없이 나오므로 빠졌다면 가려진 것."""
+        have = {r.index for r in rows}
+        return [k + 1 for k in range(max(have) + 1) if k not in have] if have else []
+
+    def _describe(self, rows) -> str:
+        return ", ".join(
+            f"{BUFF_NAMES[r.buff] if r.buff else '?(' + r.guess + ')'} {r.score:.2f}"
+            f"{'[v]' if r.checked else '[ ]'}{'' if r.buyable else '(구매완료)'}" for r in rows)
+
     def _handle_popup(self, screen):
         screen = self._settle(screen)
-        rows = self.v.read_rows(screen)
-        self.log("  팝업 행: " + ", ".join(
-            f"{BUFF_NAMES[r.buff] if r.buff else '?(' + r.guess + ')'} {r.score:.2f}"
-            f"{'[v]' if r.checked else '[ ]'}{'' if r.buyable else '(구매완료)'}" for r in rows),
-            problem=any(r.buff is None for r in rows))
+        rows, screen = self._read_stable(screen)
+        gaps = self._gaps(rows)
+        self.log(f"  팝업 행 {len(rows)}개: " + self._describe(rows),
+                 problem=any(r.buff is None for r in rows) or bool(gaps))
 
         for row in self._mismatches(rows):
             self._toggle(row, self._want(row))
@@ -164,17 +196,28 @@ class LootbugFeature(Feature):
             self.log("  감지만 실행 중이라 Buy Checked는 누르지 않습니다.")
             return
 
-        # 구매 직전에 다시 읽어서, 설정과 하나라도 다르면 사지 않는다
-        screen = self._shot()
-        rows = self.v.read_rows(screen)
+        # 구매 직전에 다시 읽어서, 하나라도 이상하면 사지 않는다
+        rows, screen = self._read_stable(self._shot())
         wrong = self._mismatches(rows)
-        if wrong:
+        gaps = self._gaps(rows)
+        bought = [r.buff for r in rows if r.buyable and r.checked]
+        buy_on = self.v.buy_enabled(screen)
+        hold = None
+        if gaps:
+            hold = f"{', '.join(map(str, gaps))}번 행이 가려져 읽지 못했습니다"
+        elif wrong:
+            hold = "설정과 다른 체크가 남아 있습니다: " + ", ".join(
+                f"{BUFF_NAMES.get(r.buff, r.guess)}{'[v]' if r.checked else '[ ]'}" for r in wrong)
+        elif buy_on and not bought:
+            # 읽은 행에는 체크가 없는데 버튼이 켜져 있으면 못 본 행에 체크가 있다는 뜻
+            hold = "읽은 행에 체크된 것이 없는데 Buy Checked가 켜져 있습니다 (못 본 행이 있음)"
+
+        if hold:
             self.count("fail.held")
-            self.log("  설정과 다른 체크가 남아 있어 구매하지 않습니다: " + ", ".join(
-                f"{BUFF_NAMES.get(r.buff, r.guess)}{'[v]' if r.checked else '[ ]'}" for r in wrong), problem=True)
-        elif self.v.buy_enabled(screen):
+            self.log(f"  구매하지 않습니다. {hold}", problem=True)
+            self.log(f"  구매 직전 행 {len(rows)}개: " + self._describe(rows), problem=True)
+        elif buy_on:
             x1, y1, x2, y2 = BUY_ROI
-            bought = [r.buff for r in rows if r.buyable and r.checked]
             self._tap((x1 + x2) // 2, (y1 + y2) // 2)
             self.log("  Buy Checked 탭: " + ", ".join(BUFF_NAMES[b] for b in bought))
             self.ctx.sleep(1.0)

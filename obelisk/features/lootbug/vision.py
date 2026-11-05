@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from ...core.imaging import SCALE, imread, inlier, load_rgba, red_ratio, to_native
+from ...core.imaging import SCALE, imread, inlier_many, load_rgba, red_ratio, to_native
 from ...paths import TEMPLATES
 
 # ── 팝업 고정 좌표 (720x1280) ───────────────────────
@@ -29,6 +29,10 @@ BUFF_NAMES = {
     "fishing_ticks": "Fishing Ticks +12",
 }
 
+
+# 행 아이콘 위치 오차 ±3 (native px) 를 한 번에 비교하기 위한 오프셋
+_OFF = np.arange(-3, 4)
+OFF_Y, OFF_X = (g.ravel() for g in np.meshgrid(_OFF, _OFF, indexing="ij"))
 
 @dataclass
 class Lootbug:
@@ -59,9 +63,12 @@ class LootbugVision:
             m3 = cv2.merge([mask.astype(np.uint8) * 255] * 3)
             skin, kind = p.stem.rsplit("_", 1)
             self.bugs.append((skin, kind == "golden", bgr, mask, m3))
-        # 위키 아이콘은 2.5배 크기라 원본(16px)으로 축소
-        self.buffs = {p.stem: load_rgba(p, 1 / 2.5)
-                      for p in sorted((TEMPLATES / "buffs").glob("*.png"))}
+        # 버프 아이콘 견본: '<키>.png'는 위키 이미지(2.5배 크기라 원본으로 축소),
+        # '<키>@game.png'는 게임 화면에서 원본 해상도로 자른 것. 버프마다 여러 장 가능.
+        self.buffs: dict[str, list] = {}
+        for p in sorted((TEMPLATES / "buffs").glob("*.png")):
+            key, _, src = p.stem.partition("@")
+            self.buffs.setdefault(key, []).append(load_rgba(p, 1.0 if src == "game" else 1 / 2.5))
         self.header = imread(TEMPLATES / "ui" / "popup_header.png").astype(np.int16)
 
     # ── 루트버그 ─────────────────────────────────
@@ -71,20 +78,25 @@ class LootbugVision:
         thr = self.cfg.get("min_score", 0.45)
         cands = []
         for skin, golden, bgr, mask, m3 in self.bugs:
-            r = cv2.matchTemplate(img, bgr, cv2.TM_SQDIFF, mask=m3)
+            # 중심이 검색 범위에 들 수 있는 줄만 잘라서 비교 (상단바, 툴바 영역 계산 생략)
+            h, w = mask.shape
+            oy = max(0, int(y_top - h / 2))
+            band = img[oy:min(img.shape[0], int(y_bot + h / 2) + 1)]
+            r = cv2.matchTemplate(band, bgr, cv2.TM_SQDIFF, mask=m3)
             r = np.nan_to_num(r, nan=np.inf, posinf=np.inf)
             local_min = cv2.erode(r, np.ones((9, 9), np.uint8))
             ys, xs = np.where(r <= local_min)
+            cy_all = ys + oy + h / 2
+            keep = (cy_all > y_top) & (cy_all < y_bot)
+            ys, xs = ys[keep], xs[keep]
             order = np.argsort(r[ys, xs])[:topk]
-            h, w = mask.shape
-            for y, x in zip(ys[order], xs[order]):
-                cy = y + h / 2
-                if not (y_top < cy < y_bot):
-                    continue
-                s = inlier(img, x, y, bgr, mask, tol=40)
-                if s >= thr:
-                    cands.append(Lootbug(int((x + w / 2) * SCALE), int(cy * SCALE),
-                                         skin, golden, s))
+            ys = ys + oy
+            ys, xs = ys[order], xs[order]
+            scores = inlier_many(img, xs, ys, bgr, mask, tol=40)
+            for i in np.flatnonzero(scores >= thr):
+                x, y = int(xs[i]), int(ys[i])
+                cands.append(Lootbug(int((x + w / 2) * SCALE), int((y + h / 2) * SCALE),
+                                     skin, golden, float(scores[i])))
         cands.sort(key=lambda b: -b.score)
         kept: list[Lootbug] = []
         for c in cands:
@@ -123,19 +135,21 @@ class LootbugVision:
             cy = int(ROW_Y0 + k * ROW_PITCH)
             if cy > ROW_Y_MAX:
                 break
-            # 체크박스의 주황 테두리가 없으면 목록 끝
-            # (행 글자가 길면 글자색 때문에 배경 밝기로는 판단할 수 없음)
+            # 체크박스의 주황 테두리로 행을 찾는다 (행 글자가 길면 글자색 때문에 배경 밝기로는
+            # 판단할 수 없음). 중간 행이 가려져도 아래 행을 놓치지 않도록 끝까지 본다.
             if not self.row_exists(screen, cy):
-                break
+                continue
             buyable = red_ratio(screen, (445, cy - 12, 470, cy + 12)) > 0.4
             checked = self.is_checked(screen, cy)
             scores = []
-            for name, (bgr, mask) in self.buffs.items():
-                h, w = mask.shape
-                y0 = int(cy / SCALE - h / 2)
-                x0 = int(ICON_X / SCALE - w / 2)
-                best = max(inlier(img, x, y, bgr, mask, tol=45)
-                           for y in range(y0 - 3, y0 + 4) for x in range(x0 - 3, x0 + 4))
+            for name, variants in self.buffs.items():
+                best = 0.0
+                for bgr, mask in variants:
+                    h, w = mask.shape
+                    y0 = int(cy / SCALE - h / 2)
+                    x0 = int(ICON_X / SCALE - w / 2)
+                    best = max(best, float(inlier_many(img, OFF_X + x0, OFF_Y + y0,
+                                                       bgr, mask, tol=45).max()))
                 scores.append((best, name))
             scores.sort(reverse=True)
             (s1, n1), (s2, _) = scores[0], scores[1]

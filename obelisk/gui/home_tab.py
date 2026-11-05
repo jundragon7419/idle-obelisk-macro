@@ -33,6 +33,12 @@ class HomeTab(ttk.Frame):
                         command=self._apply).pack(anchor="w")
         ttk.Label(opts, text="문제가 생긴 작업의 화면만 debug/로그ID.png로 저장",
                   foreground="#555").pack(anchor="w")
+        self.stream = tk.BooleanVar(value=self.general.get("capture") == "stream")
+        ttk.Checkbutton(opts, text="연속 캡처(영상)", variable=self.stream,
+                        command=self._apply).pack(anchor="w", pady=(6, 0))
+        ttk.Label(opts, text="screenrecord로 화면을 받아 LD플레이어 메모리 증가를 줄임.\n"
+                             "다음 Run부터 적용, 안 되면 일반 캡처로 자동 전환",
+                  foreground="#555", justify="left").pack(anchor="w")
 
         self.stats = StatsPanel(side)
         self.stats.pack(fill="both", expand=True, pady=(8, 0))
@@ -45,12 +51,16 @@ class HomeTab(ttk.Frame):
 
     def _apply(self):
         self.general["debug"] = bool(self.debug.get())
+        self.general["capture"] = "stream" if self.stream.get() else "raw"
         self.on_change()
 
-    def append(self, line: str):
+    def append(self, lines: list[str]):
+        """여러 줄을 한 번에 넣는다 (위젯 갱신을 한 번으로 줄임)."""
+        if not lines:
+            return
         box = self.logbox
         box.configure(state="normal")
-        box.insert("end", line + "\n")
+        box.insert("end", "\n".join(lines) + "\n")
         extra = int(box.index("end-1c").split(".")[0]) - MAX_LOG_LINES
         if extra > 0:
             box.delete("1.0", f"{extra + 1}.0")
